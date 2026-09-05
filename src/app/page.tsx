@@ -1,21 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { upload } from '@vercel/blob/client';
+
+interface Post {
+  id: number;
+  url: string;
+  caption: string | null;
+  username: string;
+  likes: number;
+}
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [posts, setPosts] = useState([
-    {
-      id: 1,
-      url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80',
-      caption: "If you need me, I'll be right here. 🌊",
-      username: 'jake.travels',
-      likes: 2410
-    }
-  ]);
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  // Fetch posts from Neon database on load
+  useEffect(() => {
+    fetch('/api/posts')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setPosts(data);
+      })
+      .catch((err) => console.error('Failed to load posts:', err));
+  }, []);
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
@@ -23,24 +33,31 @@ export default function Home() {
 
     setUploading(true);
     try {
+      // 1. Upload media to Vercel Blob storage
       const newBlob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/upload',
       });
 
-      setPosts([
-        {
-          id: Date.now(),
+      // 2. Save post details into Neon PostgreSQL database via API
+      const res = await fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           url: newBlob.url,
-          caption: caption || 'New post!',
+          caption,
           username: 'hamid.user',
-          likes: 1
-        },
-        ...posts
-      ]);
+        }),
+      });
 
-      setFile(null);
-      setCaption('');
+      const savedPost = await res.json();
+      if (res.ok) {
+        setPosts([savedPost, ...posts]);
+        setFile(null);
+        setCaption('');
+      } else {
+        throw new Error(savedPost.error);
+      }
     } catch (error) {
       alert('Upload failed: ' + (error as Error).message);
     } finally {
@@ -57,6 +74,7 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Upload Form Box */}
       <div className="p-4 bg-zinc-900 border-b border-zinc-800">
         <form onSubmit={handleUpload} className="space-y-3">
           <h2 className="text-sm font-semibold text-zinc-300">Create New Post</h2>
@@ -78,51 +96,56 @@ export default function Home() {
             disabled={uploading || !file}
             className="w-full bg-pink-600 text-white font-medium py-2 rounded-lg text-sm hover:bg-pink-700 disabled:opacity-50"
           >
-            {uploading ? 'Uploading to cloud...' : 'Post to Feed'}
+            {uploading ? 'Uploading to cloud & db...' : 'Post to Feed'}
           </button>
         </form>
       </div>
 
+      {/* Dynamic Feed List */}
       <div className="flex-1 flex flex-col space-y-4 p-2">
-        {posts.map((post) => (
-          <div key={post.id} className="relative w-full aspect-[9/16] bg-zinc-900 rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between p-4">
-            <div className="absolute inset-0 z-0">
-              {post.url.includes('.mp4') || post.url.includes('.mov') ? (
-                <video src={post.url} controls className="w-full h-full object-cover" />
-              ) : (
-                <img src={post.url} alt="Post content" className="w-full h-full object-cover" />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80 pointer-events-none" />
-            </div>
-
-            <div className="relative z-10 flex justify-end">
-              <div className="bg-black/40 p-2 rounded-full backdrop-blur-md">
-                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        {posts.length === 0 ? (
+          <p className="text-center text-zinc-500 py-10 text-sm">No posts yet. Upload your first reel above!</p>
+        ) : (
+          posts.map((post) => (
+            <div key={post.id} className="relative w-full aspect-[9/16] bg-zinc-900 rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between p-4">
+              <div className="absolute inset-0 z-0">
+                {post.url.includes('.mp4') || post.url.includes('.mov') || post.url.includes('video') ? (
+                  <video src={post.url} controls className="w-full h-full object-cover" />
+                ) : (
+                  <img src={post.url} alt="Post content" className="w-full h-full object-cover" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80 pointer-events-none" />
               </div>
-            </div>
 
-            <div className="relative z-10 flex items-end justify-between">
-              <div className="space-y-2">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 rounded-full bg-zinc-700 overflow-hidden border border-white/20">
-                    <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80" alt="Avatar" className="w-full h-full object-cover"/>
-                  </div>
-                  <span className="font-semibold text-sm">{post.username}</span>
+              <div className="relative z-10 flex justify-end">
+                <div className="bg-black/40 p-2 rounded-full backdrop-blur-md">
+                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                 </div>
-                <p className="text-sm text-zinc-200">{post.caption}</p>
               </div>
 
-              <div className="flex flex-col items-center space-y-4">
-                <button className="flex flex-col items-center focus:outline-none">
-                  <div className="bg-white/10 p-3 rounded-full backdrop-blur-md">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+              <div className="relative z-10 flex items-end justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-8 h-8 rounded-full bg-zinc-700 overflow-hidden border border-white/20">
+                      <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80" alt="Avatar" className="w-full h-full object-cover"/>
+                    </div>
+                    <span className="font-semibold text-sm">{post.username}</span>
                   </div>
-                  <span className="text-xs mt-1 font-medium">{post.likes}</span>
-                </button>
+                  <p className="text-sm text-zinc-200">{post.caption}</p>
+                </div>
+
+                <div className="flex flex-col items-center space-y-4">
+                  <button className="flex flex-col items-center focus:outline-none">
+                    <div className="bg-white/10 p-3 rounded-full backdrop-blur-md">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                    </div>
+                    <span className="text-xs mt-1 font-medium">{post.likes}</span>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-black/90 backdrop-blur-md border-t border-zinc-800 flex justify-around items-center py-3 z-20">
