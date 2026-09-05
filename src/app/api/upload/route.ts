@@ -14,7 +14,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           token: process.env.BLOB_READ_WRITE_TOKEN,
         };
       },
-      onUploadCompleted: async ({ blob, token }) => {
+      onUploadCompleted: async ({ blob }) => {
         console.log('Blob upload completed:', blob);
       },
     });
